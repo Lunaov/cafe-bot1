@@ -22,6 +22,7 @@ const client = new Client({
 const VERIFIED_ROLE_ID = '1470764529372762145';
 const WELCOME_CHANNEL_ID = '1424272771722252403';
 const STATUS_CHANNEL_ID = '1490337482548711434';
+const ANNOUNCE_CHANNEL_ID = '1424272771722252409';
 
 client.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -132,6 +133,27 @@ client.on(Events.MessageCreate, async (message) => {
 
     await statusChannel.send({ embeds: [embed] });
     await message.reply({ content: '✅ Status posted!', flags: 64 });
+  }
+
+  // ── !announce ────────────────────────────────────────────────────
+  if (command === '!announce') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+
+    const text = args.slice(1).join(' ');
+    if (!text) return message.reply('⚠️ Usage: `!announce <message>`');
+
+    const announceChannel = message.guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+    if (!announceChannel) return message.reply('❌ Announcement channel not found.');
+
+    const embed = new EmbedBuilder()
+      .setDescription(text)
+      .setImage('https://media.discordapp.net/attachments/1439309522610028594/1470923495675396221/cafe_2.gif?ex=69d39801&is=69d24681&hm=b0c7b78d4f8ba83f13d376990ed440c6102562529fd327ba5d9c2531f8f082da&=')
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕" });
+
+    await announceChannel.send({ embeds: [embed] });
+    await message.reply({ content: '✅ Announcement posted!', flags: 64 });
   }
 
   // ── !kick ────────────────────────────────────────────────────────
@@ -261,7 +283,8 @@ client.on(Events.MessageCreate, async (message) => {
       .setDescription(
         `**Setup**\n` +
         `\`!rules\` — Post the rules\n` +
-        `\`!setup\` — Post verification panel\n\n` +
+        `\`!setup\` — Post verification panel\n` +
+        `\`!announce <message>\` — Send an announcement\n\n` +
         `**GFX**\n` +
         `\`!status <commissions> <requests>\` — Update GFX status\n` +
         `Options: \`open\`, \`close\`, \`limited\`\n\n` +
