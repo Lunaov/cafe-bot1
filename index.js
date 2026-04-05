@@ -21,12 +21,13 @@ const client = new Client({
 
 const VERIFIED_ROLE_ID = '1470764529372762145';
 const WELCOME_CHANNEL_ID = '1424272771722252403';
+const STATUS_CHANNEL_ID = '1490337482548711434';
 
 client.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-// ─── WELCOME NEW MEMBERS ──────────────────────────────────
+// ─── WELCOME NEW MEMBERS ────────────────────────────────────────
 client.on(Events.GuildMemberAdd, async (member) => {
   const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
   if (!channel) return;
@@ -46,13 +47,13 @@ client.on(Events.GuildMemberAdd, async (member) => {
   channel.send({ embeds: [embed] });
 });
 
-// ─── COMMANDS ─────────────────────────────────────────────
+// ─── COMMANDS ───────────────────────────────────────────────────
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   const args = message.content.trim().split(/ +/);
   const command = args[0].toLowerCase();
 
-  // ── !rules ──────────────────────────────────────────────
+  // ── !rules ──────────────────────────────────────────────────────
   if (command === '!rules') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
       return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
@@ -60,16 +61,16 @@ client.on(Events.MessageCreate, async (message) => {
     const rulesEmbed = new EmbedBuilder()
       .setDescription(
         `﹒₊˚ʚ﹕🍰-ɞ-﹒-rulebook\n` +
-        `★★★★☆ 𝘸𝘦𝘭𝘤𝘰𝘮𝘦 𝘵𝘰 𝘓𝘶𝘯𝘢'𝘴 𝘊𝘢𝘧𝘦  ✧\n` +
+        `☆☆☆☆☆ 𝘸𝘦𝘭𝘤𝘰𝘮𝘦 𝘵𝘰 𝘓𝘶𝘯𝘢'𝘴 𝘊𝘢𝘧𝘦  ✧\n` +
         `𝘣𝘦𝘧𝘰𝘳𝘦 𝘺𝘰𝘶 𝘤𝘩𝘢𝘵, 𝘨𝘳𝘢𝘣 𝘢 𝘤𝘰𝘧𝘧𝘦𝘦 𝘢𝘯𝘥 𝘳𝘦𝘢𝘥 𝘵𝘩𝘦 𝘳𝘶𝘭𝘦𝘴 ʚɞ ☕˖\n` +
-        `──────── ୨ৎ ────────\n\n` +
+        `──────── ᭨᧎ ────────\n\n` +
         `1 ． 🥐 ﹕ No NSFW content (nicknames, PFPs, or bios). Staff may reset names like a spilled latte!\n` +
         `2 ． 🫖 ﹕ No spamming or mass @mentions. Keep the chat as calm as a quiet café corner.\n` +
         `3 ． 🌸 ﹕ No attacks (racism, sexism, hate speech). Treat everyone like a friendly barista!\n` +
-        `4 ． 🍯 ﹕ No advertising or self-promo without Luna's permission. Only sweet treats allowed.\n` +
-        `5 ． 🍪 ﹕ No drama. Keep your tea hot but your chats chill.\n` +
+        `4 ． 🯠﹕ No advertising or self-promo without Luna's permission. Only sweet treats allowed.\n` +
+        `5 ． 🪠﹕ No drama. Keep your tea hot but your chats chill.\n` +
         `6 ． ⚖️ ﹕ Staff have the final say. Arguing is like leaving your coffee out—timeout incoming!\n\n` +
-        `﹌﹌﹌﹌﹌﹌﹌﹌﹌﹌﹌\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
         `╰┈➤ 𝘢𝘯𝘺 𝘲𝘶𝘦𝘴𝘵𝘪𝘰𝘯𝘴? 𝘢𝘴𝘬 𝘮𝘦 𝘰𝘳 𝘢 𝘮𝘰𝘥 !! ☕✨`
       )
       .setImage('https://media.discordapp.net/attachments/1424272771722252406/1485289593288003754/image.png?ex=69d1cdfa&is=69d07c7a&hm=39c60c437f086d2451272681d6defb600658bf377621abbc6a1ae317ffe6f0d8&=&format=webp&quality=lossless&width=1387&height=780')
@@ -79,7 +80,7 @@ client.on(Events.MessageCreate, async (message) => {
     await message.delete();
   }
 
-  // ── !setup ───────────────────────────────────────────────
+  // ── !setup ───────────────────────────────────────────────────────
   if (command === '!setup') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
       return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
@@ -100,7 +101,40 @@ client.on(Events.MessageCreate, async (message) => {
     await message.delete();
   }
 
-  // ── !kick ────────────────────────────────────────────────
+  // ── !status ──────────────────────────────────────────────────────
+  if (command === '!status') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+
+    const validStatuses = ['open', 'close', 'limited'];
+    const commStatus = args[1]?.toLowerCase();
+    const reqStatus = args[2]?.toLowerCase();
+
+    if (!commStatus || !reqStatus || !validStatuses.includes(commStatus) || !validStatuses.includes(reqStatus))
+      return message.reply('⚠️ Usage: `!status <commissions> <requests>`\nOptions: `open`, `close`, `limited`\nExample: `!status open limited`');
+
+    const statusEmoji = (s) => s === 'open' ? '🟢 Open' : s === 'close' ? '🔴 Closed' : '🟡 Limited';
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎨 GFX Status ˚ʚ♡ɞ˚')
+      .setDescription(
+        `╰┈➤ *here's our current availability!* ☕✨\n\n` +
+        `🖌️ **Commissions :** ${statusEmoji(commStatus)}\n` +
+        `🎀 **Requests :** ${statusEmoji(reqStatus)}\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *questions? ask a mod!* 🍰`
+      )
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕" });
+
+    const statusChannel = message.guild.channels.cache.get(STATUS_CHANNEL_ID);
+    if (!statusChannel) return message.reply('❌ Status channel not found.');
+
+    await statusChannel.send({ embeds: [embed] });
+    await message.reply({ content: '✅ Status posted!', flags: 64 });
+  }
+
+  // ── !kick ────────────────────────────────────────────────────────
   if (command === '!kick') {
     if (!message.member.permissions.has(PermissionFlagsBits.KickMembers))
       return message.reply({ content: '❌ You need **Kick Members** permission.', flags: 64 });
@@ -117,7 +151,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not kick that user.'); }
   }
 
-  // ── !ban ─────────────────────────────────────────────────
+  // ── !ban ─────────────────────────────────────────────────────────
   if (command === '!ban') {
     if (!message.member.permissions.has(PermissionFlagsBits.BanMembers))
       return message.reply({ content: '❌ You need **Ban Members** permission.', flags: 64 });
@@ -134,7 +168,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not ban that user.'); }
   }
 
-  // ── !unban ───────────────────────────────────────────────
+  // ── !unban ───────────────────────────────────────────────────────
   if (command === '!unban') {
     if (!message.member.permissions.has(PermissionFlagsBits.BanMembers))
       return message.reply({ content: '❌ You need **Ban Members** permission.', flags: 64 });
@@ -149,7 +183,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not unban. Check the ID.'); }
   }
 
-  // ── !timeout ─────────────────────────────────────────────
+  // ── !timeout ─────────────────────────────────────────────────────
   if (command === '!timeout') {
     if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return message.reply({ content: '❌ You need **Moderate Members** permission.', flags: 64 });
@@ -167,7 +201,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not timeout that user.'); }
   }
 
-  // ── !untimeout ───────────────────────────────────────────
+  // ── !untimeout ───────────────────────────────────────────────────
   if (command === '!untimeout') {
     if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return message.reply({ content: '❌ You need **Moderate Members** permission.', flags: 64 });
@@ -182,7 +216,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not remove timeout.'); }
   }
 
-  // ── !warn ────────────────────────────────────────────────
+  // ── !warn ────────────────────────────────────────────────────────
   if (command === '!warn') {
     if (!message.member.permissions.has(PermissionFlagsBits.ModerateMembers))
       return message.reply({ content: '❌ You need **Moderate Members** permission.', flags: 64 });
@@ -202,7 +236,7 @@ client.on(Events.MessageCreate, async (message) => {
       .setColor(0xFFD700)] });
   }
 
-  // ── !purge ───────────────────────────────────────────────
+  // ── !purge ───────────────────────────────────────────────────────
   if (command === '!purge') {
     if (!message.member.permissions.has(PermissionFlagsBits.ManageMessages))
       return message.reply({ content: '❌ You need **Manage Messages** permission.', flags: 64 });
@@ -220,7 +254,7 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not delete (messages may be older than 14 days).'); }
   }
 
-  // ── !help ────────────────────────────────────────────────
+  // ── !help ────────────────────────────────────────────────────────
   if (command === '!help') {
     const embed = new EmbedBuilder()
       .setTitle('☕ Luna\'s Cafe — Commands')
@@ -228,6 +262,9 @@ client.on(Events.MessageCreate, async (message) => {
         `**Setup**\n` +
         `\`!rules\` — Post the rules\n` +
         `\`!setup\` — Post verification panel\n\n` +
+        `**GFX**\n` +
+        `\`!status <commissions> <requests>\` — Update GFX status\n` +
+        `Options: \`open\`, \`close\`, \`limited\`\n\n` +
         `**Moderation**\n` +
         `\`!kick @user reason\` — Kick a member\n` +
         `\`!ban @user reason\` — Ban a member\n` +
@@ -244,7 +281,7 @@ client.on(Events.MessageCreate, async (message) => {
   }
 });
 
-// ─── BUTTON INTERACTION ───────────────────────────────────
+// ─── BUTTON INTERACTION ─────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
   if (interaction.customId !== 'verify') return;
