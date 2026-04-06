@@ -24,6 +24,9 @@ const WELCOME_CHANNEL_ID = '1424272771722252403';
 const STATUS_CHANNEL_ID = '1490337482548711434';
 const ANNOUNCE_CHANNEL_ID = '1424272771722252409';
 
+// ─── GIVEAWAY STORAGE ───────────────────────────────────────────
+const activeGiveaways = new Map();
+
 client.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
@@ -276,6 +279,124 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { message.reply('❌ Could not delete (messages may be older than 14 days).'); }
   }
 
+  // ── !hug ─────────────────────────────────────────────────────────
+  if (command === '!hug') {
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('⚠️ Usage: `!hug @user`');
+    const embed = new EmbedBuilder()
+      .setDescription(`🤗 **${message.author.username}** gives **${target.user.username}** a warm hug! ☕🍰`)
+      .setColor(0xF2C4CE);
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !pat ─────────────────────────────────────────────────────────
+  if (command === '!pat') {
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('⚠️ Usage: `!pat @user`');
+    const embed = new EmbedBuilder()
+      .setDescription(`🫶 **${message.author.username}** pats **${target.user.username}** on the head! ˚ʚ♡ɞ˚`)
+      .setColor(0xF2C4CE);
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !cuddle ───────────────────────────────────────────────────────
+  if (command === '!cuddle') {
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('⚠️ Usage: `!cuddle @user`');
+    const embed = new EmbedBuilder()
+      .setDescription(`🌸 **${message.author.username}** cuddles up with **${target.user.username}**! so cozy ☕🍵`)
+      .setColor(0xF2C4CE);
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !slap ─────────────────────────────────────────────────────────
+  if (command === '!slap') {
+    const target = message.mentions.members.first();
+    if (!target) return message.reply('⚠️ Usage: `!slap @user`');
+    const embed = new EmbedBuilder()
+      .setDescription(`🍳 **${message.author.username}** slapped **${target.user.username}** with a frying pan!! 💥`)
+      .setColor(0xFF6B6B);
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !giveaway ─────────────────────────────────────────────────────
+  if (command === '!giveaway') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+
+    const minutes = parseInt(args[1]);
+    const prize = args.slice(2).join(' ');
+    if (isNaN(minutes) || !prize)
+      return message.reply('⚠️ Usage: `!giveaway <minutes> <prize>`\nExample: `!giveaway 60 Nitro Classic`');
+
+    const endTime = Date.now() + minutes * 60 * 1000;
+    const endTimestamp = Math.floor(endTime / 1000);
+
+    const giveawayEmbed = new EmbedBuilder()
+      .setTitle('🎉 GIVEAWAY 🎉')
+      .setDescription(
+        `🎁 **Prize:** ${prize}\n\n` +
+        `⏰ **Ends:** <t:${endTimestamp}:R> (<t:${endTimestamp}:f>)\n` +
+        `👥 **Participants:** 0\n\n` +
+        `╰┈➤ click the button below to enter! 🍀`
+      )
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕ • Good luck!" });
+
+    const enterButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('giveaway_enter')
+        .setLabel('🍀 Enter Giveaway')
+        .setStyle(ButtonStyle.Success)
+    );
+
+    const giveawayMsg = await message.channel.send({ embeds: [giveawayEmbed], components: [enterButton] });
+    await message.delete();
+
+    // Store giveaway data
+    activeGiveaways.set(giveawayMsg.id, {
+      prize,
+      endTime,
+      participants: new Set(),
+      channelId: message.channel.id,
+      messageId: giveawayMsg.id
+    });
+
+    // Auto end after duration
+    setTimeout(async () => {
+      const giveaway = activeGiveaways.get(giveawayMsg.id);
+      if (!giveaway) return;
+
+      const participants = [...giveaway.participants];
+      const disabledButton = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('giveaway_enter')
+          .setLabel('🎉 Giveaway Ended')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true)
+      );
+
+      if (participants.length === 0) {
+        const endEmbed = new EmbedBuilder()
+          .setTitle('🎉 GIVEAWAY ENDED 🎉')
+          .setDescription(`🎁 **Prize:** ${prize}\n\n😔 No one entered the giveaway!`)
+          .setColor(0xAAAAAA)
+          .setFooter({ text: "Luna's Cafe ☕" });
+        await giveawayMsg.edit({ embeds: [endEmbed], components: [disabledButton] });
+      } else {
+        const winner = participants[Math.floor(Math.random() * participants.length)];
+        const endEmbed = new EmbedBuilder()
+          .setTitle('🎉 GIVEAWAY ENDED 🎉')
+          .setDescription(`🎁 **Prize:** ${prize}\n\n🏆 **Winner:** <@${winner}>\n👥 **Total participants:** ${participants.length}`)
+          .setColor(0xF2C4CE)
+          .setFooter({ text: "Luna's Cafe ☕" });
+        await giveawayMsg.edit({ embeds: [endEmbed], components: [disabledButton] });
+        message.channel.send(`🎉 Congratulations <@${winner}>! You won **${prize}**! ☕🎁`);
+      }
+      activeGiveaways.delete(giveawayMsg.id);
+    }, minutes * 60 * 1000);
+  }
+
   // ── !help ────────────────────────────────────────────────────────
   if (command === '!help') {
     const embed = new EmbedBuilder()
@@ -288,6 +409,8 @@ client.on(Events.MessageCreate, async (message) => {
         `**GFX**\n` +
         `\`!status <commissions> <requests>\` — Update GFX status\n` +
         `Options: \`open\`, \`close\`, \`limited\`\n\n` +
+        `**Giveaway**\n` +
+        `\`!giveaway <minutes> <prize>\` — Start a giveaway\n\n` +
         `**Moderation**\n` +
         `\`!kick @user reason\` — Kick a member\n` +
         `\`!ban @user reason\` — Ban a member\n` +
@@ -295,7 +418,12 @@ client.on(Events.MessageCreate, async (message) => {
         `\`!timeout @user <mins> reason\` — Timeout\n` +
         `\`!untimeout @user\` — Remove timeout\n` +
         `\`!warn @user reason\` — Warn a member\n` +
-        `\`!purge <1-100>\` — Delete messages\n`
+        `\`!purge <1-100>\` — Delete messages\n\n` +
+        `**Fun**\n` +
+        `\`!hug @user\` — Hug someone\n` +
+        `\`!pat @user\` — Pat someone\n` +
+        `\`!cuddle @user\` — Cuddle someone\n` +
+        `\`!slap @user\` — Slap someone 🍳\n`
       )
       .setColor(0xF2C4CE)
       .setFooter({ text: 'Luna\'s Cafe ☕' });
@@ -307,20 +435,49 @@ client.on(Events.MessageCreate, async (message) => {
 // ─── BUTTON INTERACTION ─────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
-  if (interaction.customId !== 'verify') return;
 
-  try {
-    await interaction.member.roles.add(VERIFIED_ROLE_ID);
-    await interaction.reply({
-      content: '☕ Welcome to Luna\'s Cafe! Enjoy your stay ʚɞ',
-      ephemeral: true
-    });
-  } catch (error) {
-    console.error(error);
-    await interaction.reply({
-      content: '❌ Something went wrong. Please contact an admin.',
-      ephemeral: true
-    });
+  // ── Verify button ────────────────────────────────────────────────
+  if (interaction.customId === 'verify') {
+    try {
+      await interaction.member.roles.add(VERIFIED_ROLE_ID);
+      await interaction.reply({
+        content: '☕ Welcome to Luna\'s Cafe! Enjoy your stay ʚɞ',
+        ephemeral: true
+      });
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({
+        content: '❌ Something went wrong. Please contact an admin.',
+        ephemeral: true
+      });
+    }
+  }
+
+  // ── Giveaway enter button ────────────────────────────────────────
+  if (interaction.customId === 'giveaway_enter') {
+    const giveaway = activeGiveaways.get(interaction.message.id);
+    if (!giveaway) return interaction.reply({ content: '❌ This giveaway has ended!', ephemeral: true });
+
+    if (giveaway.participants.has(interaction.user.id)) {
+      return interaction.reply({ content: '🍀 You\'re already entered! Good luck ☕', ephemeral: true });
+    }
+
+    giveaway.participants.add(interaction.user.id);
+
+    // Update embed with new participant count
+    const updatedEmbed = new EmbedBuilder()
+      .setTitle('🎉 GIVEAWAY 🎉')
+      .setDescription(
+        `🎁 **Prize:** ${giveaway.prize}\n\n` +
+        `⏰ **Ends:** <t:${Math.floor(giveaway.endTime / 1000)}:R> (<t:${Math.floor(giveaway.endTime / 1000)}:f>)\n` +
+        `👥 **Participants:** ${giveaway.participants.size}\n\n` +
+        `╰┈➤ click the button below to enter! 🍀`
+      )
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕ • Good luck!" });
+
+    await interaction.message.edit({ embeds: [updatedEmbed] });
+    await interaction.reply({ content: '🎉 You\'ve entered the giveaway! Good luck! 🍀', ephemeral: true });
   }
 });
 
