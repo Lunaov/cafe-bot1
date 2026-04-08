@@ -24,8 +24,14 @@ const WELCOME_CHANNEL_ID = '1424272771722252403';
 const STATUS_CHANNEL_ID = '1490337482548711434';
 const ANNOUNCE_CHANNEL_ID = '1424272771722252409';
 
-// ─── GIVEAWAY STORAGE ───────────────────────────────────────────
+// ─── STORAGE ────────────────────────────────────────────────────
 const activeGiveaways = new Map();
+const xpData = new Map();
+const activeTickets = new Map();
+const xpCooldowns = new Set();
+
+function getXP(userId) { return xpData.get(userId) || { xp: 0, level: 0 }; }
+function xpForLevel(level) { return 100 * (level + 1); }
 
 client.once(Events.ClientReady, () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -397,6 +403,105 @@ client.on(Events.MessageCreate, async (message) => {
     }, minutes * 60 * 1000);
   }
 
+  // ── XP GAIN ──────────────────────────────────────────────────────
+  if (!xpCooldowns.has(message.author.id)) {
+    const userData = getXP(message.author.id);
+    const gained = Math.floor(Math.random() * 10) + 5;
+    userData.xp += gained;
+    xpCooldowns.add(message.author.id);
+    setTimeout(() => xpCooldowns.delete(message.author.id), 60000);
+
+    while (userData.xp >= xpForLevel(userData.level)) {
+      userData.xp -= xpForLevel(userData.level);
+      userData.level++;
+      message.channel.send({ embeds: [new EmbedBuilder()
+        .setDescription(`⭐ **${message.author.username}** leveled up to **Level ${userData.level}**! ☕🎉`)
+        .setColor(0xF2C4CE)
+        .setFooter({ text: "Luna's Cafe ☕" })] });
+    }
+    xpData.set(message.author.id, userData);
+  }
+
+  // ── !rank ─────────────────────────────────────────────────────────
+  if (command === '!rank') {
+    const target = message.mentions.users.first() || message.author;
+    const userData = getXP(target.id);
+    const needed = xpForLevel(userData.level);
+    const bar = '█'.repeat(Math.floor((userData.xp / needed) * 10)) + '░'.repeat(10 - Math.floor((userData.xp / needed) * 10));
+    const embed = new EmbedBuilder()
+      .setTitle(`⭐ ${target.username}'s Rank`)
+      .setThumbnail(target.displayAvatarURL({ dynamic: true }))
+      .setDescription(
+        `🎖️ **Level:** ${userData.level}\n` +
+        `✨ **XP:** ${userData.xp} / ${needed}\n` +
+        `\`${bar}\``
+      )
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕" });
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !leaderboard ──────────────────────────────────────────────────
+  if (command === '!leaderboard' || command === '!lb') {
+    const sorted = [...xpData.entries()]
+      .sort((a, b) => (b[1].level * 10000 + b[1].xp) - (a[1].level * 10000 + a[1].xp))
+      .slice(0, 10);
+
+    if (sorted.length === 0) return message.reply('No XP data yet! Start chatting ☕');
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const desc = sorted.map(([id, data], i) =>
+      `${medals[i] || `**${i + 1}.**`} <@${id}> — Level **${data.level}** · ${data.xp} XP`
+    ).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setTitle('☕ Luna\'s Cafe — Leaderboard')
+      .setDescription(desc)
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕" });
+    message.channel.send({ embeds: [embed] });
+  }
+
+  // ── !ordersetup ───────────────────────────────────────────────────
+  if (command === '!ordersetup') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+
+    const orderEmbed = new EmbedBuilder()
+      .setTitle('🎨 GFX Orders — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *want a graphic made just for you?* 🌸\n\n` +
+        `🖌️ Click the button below to open an order ticket!\n` +
+        `A private channel will be created for you.\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *please be patient, we'll get to you soon!* ☕`
+      )
+      .setColor(0xF2C4CE)
+      .setFooter({ text: "Luna's Cafe ☕" });
+
+    const orderButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('create_order')
+        .setLabel('🎨 Create Order')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    await message.channel.send({ embeds: [orderEmbed], components: [orderButton] });
+    await message.delete();
+  }
+
+  // ── !closeticket ──────────────────────────────────────────────────
+  if (command === '!closeticket') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply({ content: '❌ You need **Manage Channels** permission.', flags: 64 });
+
+    if (!message.channel.name.startsWith('order-')) 
+      return message.reply('❌ This is not a ticket channel.');
+
+    await message.channel.send('🔒 Closing ticket in 5 seconds...');
+    setTimeout(() => message.channel.delete(), 5000);
+  }
+
   // ── !help ────────────────────────────────────────────────────────
   if (command === '!help') {
     const embed = new EmbedBuilder()
@@ -405,10 +510,14 @@ client.on(Events.MessageCreate, async (message) => {
         `**Setup**\n` +
         `\`!rules\` — Post the rules\n` +
         `\`!setup\` — Post verification panel\n` +
-        `\`!announce <message>\` — Send an announcement\n\n` +
+        `\`!announce <message>\` — Send an announcement\n` +
+        `\`!ordersetup\` — Post GFX order panel\n\n` +
         `**GFX**\n` +
         `\`!status <commissions> <requests>\` — Update GFX status\n` +
         `Options: \`open\`, \`close\`, \`limited\`\n\n` +
+        `**Leveling**\n` +
+        `\`!rank [@user]\` — Check your rank\n` +
+        `\`!leaderboard\` — Top 10 XP leaderboard\n\n` +
         `**Giveaway**\n` +
         `\`!giveaway <minutes> <prize>\` — Start a giveaway\n\n` +
         `**Moderation**\n` +
@@ -418,7 +527,8 @@ client.on(Events.MessageCreate, async (message) => {
         `\`!timeout @user <mins> reason\` — Timeout\n` +
         `\`!untimeout @user\` — Remove timeout\n` +
         `\`!warn @user reason\` — Warn a member\n` +
-        `\`!purge <1-100>\` — Delete messages\n\n` +
+        `\`!purge <1-100>\` — Delete messages\n` +
+        `\`!closeticket\` — Close an order ticket\n\n` +
         `**Fun**\n` +
         `\`!hug @user\` — Hug someone\n` +
         `\`!pat @user\` — Pat someone\n` +
@@ -453,7 +563,52 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   }
 
-  // ── Giveaway enter button ────────────────────────────────────────
+  // ── Create Order ticket button ────────────────────────────────────
+  if (interaction.customId === 'create_order') {
+    if (activeTickets.has(interaction.user.id)) {
+      const existingId = activeTickets.get(interaction.user.id);
+      return interaction.reply({ content: `❌ You already have an open ticket! <#${existingId}>`, ephemeral: true });
+    }
+
+    try {
+      const ticketChannel = await interaction.guild.channels.create({
+        name: `order-${interaction.user.username}`,
+        type: 0,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: ['ViewChannel'] },
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+          { id: interaction.guild.roles.cache.find(r => r.permissions.has(PermissionFlagsBits.ManageGuild))?.id || interaction.guild.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] }
+        ]
+      });
+
+      activeTickets.set(interaction.user.id, ticketChannel.id);
+
+      const ticketEmbed = new EmbedBuilder()
+        .setTitle('🎨 GFX Order Ticket')
+        .setDescription(
+          `hey ${interaction.user}! ☕ welcome to your order ticket!\n\n` +
+          `please tell us:\n` +
+          `🖼️ **Type** — (pfp, banner, logo, etc.)\n` +
+          `🎨 **Style** — (colours, theme, vibe)\n` +
+          `📝 **Details** — (text, extra info)\n` +
+          `⏰ **Deadline** — (when do you need it?)\n\n` +
+          `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+          `staff will be with you shortly! 🌸\n` +
+          `use \`!closeticket\` to close this ticket.`
+        )
+        .setColor(0xF2C4CE)
+        .setFooter({ text: "Luna's Cafe ☕" });
+
+      await ticketChannel.send({ content: `${interaction.user}`, embeds: [ticketEmbed] });
+
+      ticketChannel.on('delete', () => activeTickets.delete(interaction.user.id));
+
+      await interaction.reply({ content: `✅ Your order ticket has been created! ${ticketChannel}`, ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: '❌ Could not create ticket. Make sure I have Manage Channels permission!', ephemeral: true });
+    }
+  }
   if (interaction.customId === 'giveaway_enter') {
     const giveaway = activeGiveaways.get(interaction.message.id);
     if (!giveaway) return interaction.reply({ content: '❌ This giveaway has ended!', ephemeral: true });
@@ -481,4 +636,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);  
+client.login(process.env.DISCORD_TOKEN);
