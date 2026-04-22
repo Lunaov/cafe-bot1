@@ -28,7 +28,7 @@ const STATUS_CHANNEL_ID     = '1490337482548711434';
 const ANNOUNCE_CHANNEL_ID   = '1424272771722252409';
 const APPS_CHANNEL_ID       = '1470769330164732149';
 const PARTNER_CHANNEL_ID    = '1484270944905334794';
-const ANNOUNCE_IMAGE        = 'https://media.discordapp.net/attachments/1439309522610028594/1470923495675396221/cafe_2.gif?ex=69d39801&is=69d24681&hm=b0c7b78d4f8ba83f13d376990ed440c6102562529fd327ba5d9c2531f8f082da&=';
+const ANNOUNCE_IMAGE        = 'https://media.discordapp.net/attachments/1439309522610028594/1488384922090602586/1_cinnamoroll.gif?ex=69e8457a&is=69e6f3fa&hm=79ebcfb7182575e1cd5e0c171b87ab92e1018d4d8fa4a4a9adcffd3b38b82f91&=';
 
 // ─── THEME ───────────────────────────────────────────────────────
 const C_MAIN    = 0xADD8E6; // light blue
@@ -43,6 +43,7 @@ const xpData             = new Map();
 const xpCooldowns        = new Set();
 const ticketCounter      = new Map();
 const activeApplications = new Map();
+const pendingApplications = new Map(); // messageId -> { userId, type, tag }
 let   partnerCount       = 0;
 
 function getXP(userId) { return xpData.get(userId) || { xp: 0, level: 0 }; }
@@ -124,7 +125,17 @@ client.on(Events.MessageCreate, async (message) => {
         .setColor(C_MAIN)
         .setTimestamp();
       questions.forEach((q, i) => resultEmbed.addFields({ name: q, value: app.answers[i] || '*No answer*', inline: false }));
-      if (appsChannel) await appsChannel.send({ embeds: [resultEmbed] });
+
+      const appButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`app_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`app_deny_${message.author.id}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
+      );
+
+      if (appsChannel) {
+        const appMsg = await appsChannel.send({ embeds: [resultEmbed], components: [appButtons] });
+        pendingApplications.set(appMsg.id, { userId: message.author.id, type: app.type, tag: message.author.tag });
+      }
+
       await message.channel.send({ embeds: [new EmbedBuilder()
         .setTitle('✅ Application Submitted!')
         .setDescription(`thank you for applying to **Luna's Cafe**! ☁️🌸\nyour application has been sent to our staff team.\nwe'll get back to you soon! ʚɞ`)
@@ -633,6 +644,248 @@ client.on(Events.MessageCreate, async (message) => {
     }, minutes * 60 * 1000);
   }
 
+  // ── !staffg ───────────────────────────────────────────────────────
+  if (command === '!staffg') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🛡️ Staff Guide — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *welcome to the team! here's everything you need to know* ☁️\n\n` +
+        `**📌 Your Role**\n` +
+        `As staff, you are the backbone of Luna's Cafe. Your job is to keep the server safe, welcoming, and cozy for everyone.\n\n` +
+        `**📋 Responsibilities**\n` +
+        `🌸 Monitor chats and enforce the rules fairly\n` +
+        `⚠️ Issue warnings for minor rule breaks (\`!warn\`)\n` +
+        `⏳ Use timeouts for repeated offenses (\`!timeout\`)\n` +
+        `🚫 Escalate serious cases to senior staff or owner\n` +
+        `💬 Be welcoming to new members\n` +
+        `🧹 Keep channels clean with \`!purge\` when needed\n\n` +
+        `**📌 Golden Rules**\n` +
+        `☁️ Never abuse your permissions\n` +
+        `☁️ Always be professional and kind\n` +
+        `☁️ If unsure, ask before acting\n` +
+        `☁️ Stay active — inactivity may result in demotion\n` +
+        `☁️ Lead by example — you represent Luna's Cafe\n\n` +
+        `**🛠️ Staff Commands**\n` +
+        `\`!warn\` \`!kick\` \`!ban\` \`!timeout\` \`!untimeout\` \`!purge\` \`!nuke\` \`!closeticket\`\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *thank you for being part of the team! ☕🌸*`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • Staff Guide" })] });
+    await message.delete();
+  }
+
+  // ── !ownerg ───────────────────────────────────────────────────────
+  if (command === '!ownerg') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('👑 Owner Guide — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *the full guide for running Luna's Cafe* ☁️\n\n` +
+        `**👑 Your Responsibilities**\n` +
+        `As owner, you are responsible for the overall direction, culture, and safety of the server.\n\n` +
+        `**📋 Key Duties**\n` +
+        `🌸 Set the tone — your attitude shapes the community\n` +
+        `🛡️ Manage and support your staff team\n` +
+        `📢 Keep announcements and events active\n` +
+        `🤝 Handle partnerships thoughtfully\n` +
+        `🎨 Oversee GFX quality and commissions\n` +
+        `⚖️ Handle escalated moderation cases\n` +
+        `📊 Review applications with care\n\n` +
+        `**📌 Best Practices**\n` +
+        `☁️ Be transparent with your team\n` +
+        `☁️ Promote staff who show dedication\n` +
+        `☁️ Hold regular events to keep the server active\n` +
+        `☁️ Check the applications channel regularly\n` +
+        `☁️ Keep the server organised and cozy\n\n` +
+        `**🛠️ Owner Commands**\n` +
+        `\`!announce\` \`!setup\` \`!rules\` \`!ordersetup\` \`!staffg\` \`!eventg\`\n` +
+        `\`!setlevel\` \`!nuke\` \`!status\` \`!giveaway\` \`!say\`\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *Luna's Cafe is yours to nurture — make it shine! ☕✨*`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • Owner Guide" })] });
+    await message.delete();
+  }
+
+  // ── !eventg ───────────────────────────────────────────────────────
+  if (command === '!eventg') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🎪 Event Guide — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *how to host events at Luna's Cafe* ☁️\n\n` +
+        `**📋 Before the Event**\n` +
+        `📢 Announce it at least **24 hours** in advance using \`!announce\`\n` +
+        `📌 Confirm the date, time and timezone clearly\n` +
+        `🎁 Prepare prizes or rewards if applicable\n` +
+        `✅ Get approval from owner before posting\n\n` +
+        `**🎪 During the Event**\n` +
+        `🌸 Be present and actively manage the event\n` +
+        `⚠️ Enforce rules — no trolling or disruption\n` +
+        `🧹 Keep the channel clean and on-topic\n` +
+        `🎉 Keep energy high and make it fun!\n\n` +
+        `**📌 After the Event**\n` +
+        `🏆 Announce winners promptly and fairly\n` +
+        `💬 Thank everyone for participating\n` +
+        `📝 Report any issues to the owner\n\n` +
+        `**🎮 Event Types**\n` +
+        `🌾 DTI Farming Events — \`!farming\`\n` +
+        `🎡 DTI Fair Events — \`!fair\`\n` +
+        `🎉 Giveaways — \`!giveaway <mins> <prize>\`\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *great events make great communities! ☕🎊*`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • Event Guide" })] });
+    await message.delete();
+  }
+
+  // ── !farming ──────────────────────────────────────────────────────
+  if (command === '!farming') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    const details = args.slice(1).join(' ');
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🌾 DTI Farming Event — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *a farming event is being hosted!* ☁️🌾\n\n` +
+        `🌱 **Event:** DTI Farming\n` +
+        `📝 **Details:** ${details || 'check with staff for more info!'}\n\n` +
+        `**How it works:**\n` +
+        `🌾 Join the farming session and collect resources together!\n` +
+        `🤝 Help each other out — teamwork makes it easier\n` +
+        `🎁 Rewards may be given for top farmers!\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *come join the fun! ☕🌸*`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • DTI Event" })
+      .setTimestamp()] });
+    await message.delete();
+  }
+
+  // ── !fair ─────────────────────────────────────────────────────────
+  if (command === '!fair') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    const details = args.slice(1).join(' ');
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🎡 DTI Fair Event — Luna\'s Cafe')
+      .setDescription(
+        `╰┈➤ *a fair event is being hosted!* ☁️🎡\n\n` +
+        `🎪 **Event:** DTI Fair\n` +
+        `📝 **Details:** ${details || 'check with staff for more info!'}\n\n` +
+        `**How it works:**\n` +
+        `🎡 Visit the fair and enjoy all the activities!\n` +
+        `🛍️ Trade, collect, and have fun with others\n` +
+        `🎁 Special prizes available at the fair!\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *see you at the fair! ☕🎊*`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • DTI Event" })
+      .setTimestamp()] });
+    await message.delete();
+  }
+
+  // ── !slowmode ─────────────────────────────────────────────────────
+  if (command === '!slowmode') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply({ content: '❌ You need **Manage Channels** permission.', flags: 64 });
+    const seconds = parseInt(args[1]);
+    if (isNaN(seconds) || seconds < 0 || seconds > 21600)
+      return message.reply('⚠️ Usage: `!slowmode <seconds>` (0 to disable, max 21600)');
+    await message.channel.setRateLimitPerUser(seconds);
+    message.channel.send({ embeds: [embed(
+      seconds === 0 ? '✅ Slowmode disabled.' : `🐌 Slowmode set to **${seconds} seconds**.`,
+      C_MAIN
+    )] });
+  }
+
+  // ── !lock / !unlock ───────────────────────────────────────────────
+  if (command === '!lock') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply({ content: '❌ You need **Manage Channels** permission.', flags: 64 });
+    await message.channel.permissionOverwrites.edit(message.guild.id, { SendMessages: false });
+    message.channel.send({ embeds: [embed('🔒 Channel locked. Only staff can send messages.', C_MAIN)] });
+  }
+
+  if (command === '!unlock') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageChannels))
+      return message.reply({ content: '❌ You need **Manage Channels** permission.', flags: 64 });
+    await message.channel.permissionOverwrites.edit(message.guild.id, { SendMessages: null });
+    message.channel.send({ embeds: [embed('🔓 Channel unlocked! Welcome back everyone ☁️', C_MAIN)] });
+  }
+
+  // ── !emoji ────────────────────────────────────────────────────────
+  if (command === '!emoji') {
+    const emojis = ['☁️','🌸','☕','🍰','🫧','✨','🤍','🌤️','🍵','🌷','🎀','🪷','🩵','💙','🫶'];
+    const random = Array.from({length: 5}, () => emojis[Math.floor(Math.random() * emojis.length)]).join(' ');
+    message.channel.send({ embeds: [embed(`your daily cafe vibes: ${random}`, C_MAIN)] });
+  }
+
+  // ── !ship ─────────────────────────────────────────────────────────
+  if (command === '!ship') {
+    const user1 = message.mentions.users.first();
+    const user2 = message.mentions.users.at(1) || message.author;
+    if (!user1) return message.reply('⚠️ Usage: `!ship @user1 @user2`');
+    const percent = Math.floor(Math.random() * 101);
+    const hearts = percent >= 80 ? '💙💙💙💙💙' : percent >= 60 ? '💙💙💙💙🤍' : percent >= 40 ? '💙💙💙🤍🤍' : percent >= 20 ? '💙💙🤍🤍🤍' : '💙🤍🤍🤍🤍';
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('💙 Ship Calculator')
+      .setDescription(`**${user1.username}** 🤝 **${user2.username}**\n\n${hearts}\n\n**${percent}%** compatibility! ${percent >= 70 ? '☁️ meant to be!' : percent >= 40 ? '🌸 pretty cute!' : '🍵 maybe just friends!'}`)
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️" })] });
+  }
+
+  // ── !topic ────────────────────────────────────────────────────────
+  if (command === '!topic') {
+    const topics = [
+      'What\'s your favourite cafe drink? ☕',
+      'If you could live in any fictional world, which would it be? 🌸',
+      'What song are you currently obsessed with? 🎵',
+      'Describe your dream bedroom aesthetic! ☁️',
+      'What\'s your comfort show or movie? 🍵',
+      'If you opened a cafe, what would you name it? ☕',
+      'What\'s your go-to cozy activity? 🤍',
+      'Morning person or night owl? 🌙',
+      'What\'s the last thing that made you smile? 🌷',
+      'If you were a dessert, what would you be? 🍰'
+    ];
+    const t = topics[Math.floor(Math.random() * topics.length)];
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('💬 Conversation Topic')
+      .setDescription(`*${t}*`)
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️" })] });
+  }
+
+  // ── !activity ─────────────────────────────────────────────────────
+  if (command === '!activity') {
+    const activities = [
+      '🎨 Share your GFX work in the art channel!',
+      '☕ Tell us your favourite cafe order!',
+      '🌸 Compliment someone in the server today!',
+      '🎵 Drop a song recommendation!',
+      '🍰 Share a recipe you love!',
+      '☁️ Post a picture that gives you cozy vibes!',
+      '🌷 What are you grateful for today?',
+      '🤍 Give someone a kind word — it goes a long way!'
+    ];
+    const a = activities[Math.floor(Math.random() * activities.length)];
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🌸 Server Activity')
+      .setDescription(`*${a}*`)
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Cafe ☁️ • let's get chatting!" })] });
+  }
+
   // ── !help ────────────────────────────────────────────────────────
   if (command === '!help') {
     message.reply({ embeds: [new EmbedBuilder()
@@ -640,6 +893,10 @@ client.on(Events.MessageCreate, async (message) => {
       .setDescription(
         `**Setup**\n` +
         `\`!rules\` · \`!setup\` · \`!announce <msg>\` · \`!ordersetup\` · \`!say <msg>\`\n\n` +
+        `**Guides** *(admin sends, everyone sees)*\n` +
+        `\`!staffg\` · \`!ownerg\` · \`!eventg\`\n\n` +
+        `**DTI Events**\n` +
+        `\`!farming [details]\` · \`!fair [details]\`\n\n` +
         `**Applications**\n` +
         `\`!apply\` — Apply for staff or GFX artist via DM\n\n` +
         `**GFX**\n` +
@@ -652,10 +909,12 @@ client.on(Events.MessageCreate, async (message) => {
         `\`!serverinfo\` · \`!userinfo [@user]\` · \`!ping\`\n\n` +
         `**Moderation**\n` +
         `\`!kick\` · \`!ban\` · \`!unban\` · \`!timeout\` · \`!untimeout\`\n` +
-        `\`!warn\` · \`!purge <1-100>\` · \`!closeticket\` · \`!nuke\`\n\n` +
+        `\`!warn\` · \`!purge\` · \`!nuke\` · \`!closeticket\`\n` +
+        `\`!lock\` · \`!unlock\` · \`!slowmode <secs>\`\n\n` +
         `**Fun**\n` +
         `\`!hug\` · \`!pat\` · \`!cuddle\` · \`!slap\` · \`!boop\` · \`!wave\`\n` +
-        `\`!8ball <q>\` · \`!coinflip\` · \`!quote\`\n`
+        `\`!ship @u1 @u2\` · \`!8ball <q>\` · \`!coinflip\` · \`!quote\`\n` +
+        `\`!topic\` · \`!activity\` · \`!emoji\`\n`
       )
       .setColor(C_MAIN)
       .setFooter({ text: 'Luna\'s Cafe ☁️' })] });
@@ -738,6 +997,45 @@ client.on(Events.InteractionCreate, async (interaction) => {
       console.error(err);
       await interaction.reply({ content: '❌ Could not create ticket. Make sure I have **Manage Channels** permission!', ephemeral: true });
     }
+  }
+
+  // ── Accept / Deny Application ─────────────────────────────────────
+  if (interaction.customId.startsWith('app_accept_') || interaction.customId.startsWith('app_deny_')) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return interaction.reply({ content: '❌ You need **Manage Server** permission.', ephemeral: true });
+
+    const accepted = interaction.customId.startsWith('app_accept_');
+    const appData = pendingApplications.get(interaction.message.id);
+    if (!appData) return interaction.reply({ content: '❌ Application data not found.', ephemeral: true });
+
+    pendingApplications.delete(interaction.message.id);
+
+    // Update the embed in apps channel
+    const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+      .setColor(accepted ? 0x57F287 : 0xFF6B6B)
+      .setFooter({ text: `${accepted ? '✅ Accepted' : '❌ Denied'} by ${interaction.user.tag}` });
+
+    const disabledRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('app_accept_done').setLabel('✅ Accepted').setStyle(ButtonStyle.Success).setDisabled(true),
+      new ButtonBuilder().setCustomId('app_deny_done').setLabel('❌ Denied').setStyle(ButtonStyle.Danger).setDisabled(true)
+    );
+
+    await interaction.message.edit({ embeds: [updatedEmbed], components: [disabledRow] });
+
+    // DM the applicant
+    try {
+      const user = await client.users.fetch(appData.userId);
+      await user.send({ embeds: [new EmbedBuilder()
+        .setTitle(accepted ? '✅ Application Accepted!' : '❌ Application Denied')
+        .setDescription(accepted
+          ? `hey **${appData.tag}**! 🎉☁️\n\nyour **${appData.type === 'staff' ? 'staff' : 'GFX artist'}** application at **Luna's Cafe** has been **accepted**!\n\nwelcome to the team! please check the server for further instructions. 🌸`
+          : `hey **${appData.tag}**! ☁️\n\nthank you for applying to **Luna's Cafe**.\nunfortunately your **${appData.type === 'staff' ? 'staff' : 'GFX artist'}** application was **not accepted** at this time.\n\ndon't be discouraged — you're always welcome to apply again in the future! 🌸`
+        )
+        .setColor(accepted ? C_SUCCESS : C_ERROR)
+        .setFooter({ text: "Luna's Cafe ☁️" })] });
+    } catch { /* User has DMs closed */ }
+
+    await interaction.reply({ content: `${accepted ? '✅ Accepted' : '❌ Denied'} **${appData.tag}**'s application and DM'd them the result!`, ephemeral: true });
   }
 
   // ── Giveaway Enter ────────────────────────────────────────────────
