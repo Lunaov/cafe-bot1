@@ -92,7 +92,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
       `🍰 we're happy you're here!`
     )
     .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-    .setImage('https://media.discordapp.net/attachments/1474855622880002191/1485288996874752100/image.png?ex=69d1cd6c&is=69d07bec&hm=3a8f33f73d80bfe91497ecee4551f43e6984d334c151bf726a4c2e3b1d773ad7&=&format=webp&quality=lossless&width=550&height=309')
+    .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321413449191565/image.png?ex=69f0bc0e&is=69ef6a8e&hm=178a1f2a7ad9d755da3133e08b08acc2baa9fb835f4557b12afcc63eba978de2&=&format=webp&quality=lossless&width=1385&height=779')
     .setColor(C_MAIN)
     .setFooter({ text: `member #${member.guild.memberCount}` })] });
 });
@@ -183,20 +183,20 @@ client.on(Events.MessageCreate, async (message) => {
       return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
     await message.channel.send({ embeds: [new EmbedBuilder()
       .setDescription(
-        `﹒₊˚ʚ﹕🍰-ɞ-﹒-rulebook\n` +
-        `☆☆☆☆☆ 𝘸𝘦𝘭𝘤𝘰𝘮𝘦 𝘵𝘰 𝘓𝘶𝘯𝘢'𝘴 𝘊𝘢𝘧𝘦  ✧\n` +
-        `𝘣𝘦𝘧𝘰𝘳𝘦 𝘺𝘰𝘶 𝘤𝘩𝘢𝘵, 𝘨𝘳𝘢𝘣 𝘢 𝘤𝘰𝘧𝘧𝘦𝘦 𝘢𝘯𝘥 𝘳𝘦𝘢𝘥 𝘵𝘩𝘦 𝘳𝘶𝘭𝘦𝘴 ʚɞ ☕˖\n` +
-        `──────── ᭨᧎ ────────\n\n` +
-        `1 ． 🥐 ﹕ No NSFW content (nicknames, PFPs, or bios).\n` +
-        `2 ． 🫖 ﹕ No spamming or mass @mentions.\n` +
-        `3 ． 🌸 ﹕ No hate speech or attacks of any kind.\n` +
-        `4 ． 🍯 ﹕ No advertising or self-promo without permission.\n` +
-        `5 ． 🪄 ﹕ No drama. Keep it chill.\n` +
-        `6 ． ⚖️ ﹕ Staff have the final say.\n\n` +
-        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
-        `╰┈➤ 𝘢𝘯𝘺 𝘲𝘶𝘦𝘴𝘵𝘪𝘰𝘯𝘴? 𝘢𝘴𝘬 𝘮𝘦 𝘰𝘳 𝘢 𝘮𝘰𝘥 !! ☁️✨`
+        `❄️ Respect Everyone
+Be kind and respectful. No bullying, harassment, or toxic behavior.
+🌊 Keep It Safe (SFW)
+No NSFW, inappropriate content, or anything uncomfortable.
+🫧 No Spam
+Avoid flooding, spamming, or excessive caps. Keep chat clean and readable.
+🐚 Follow Discord TOS
+Make sure you follow Discord’s Terms of Service at all times.
+💬 Use Channels Properly
+Post in the correct channels so everything stays organized.
+🧊 Listen to Staff
+Staff decisions are final — they’re here to help keep the server safe.`
       )
-      .setImage('https://media.discordapp.net/attachments/1424272771722252406/1485289593288003754/image.png?ex=69d1cdfa&is=69d07c7a&hm=39c60c437f086d2451272681d6defb600658bf377621abbc6a1ae317ffe6f0d8&=&format=webp&quality=lossless&width=1387&height=780')
+      .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321413449191565/image.png?ex=69f0bc0e&is=69ef6a8e&hm=178a1f2a7ad9d755da3133e08b08acc2baa9fb835f4557b12afcc63eba978de2&=&format=webp&quality=lossless&width=1385&height=779')
       .setColor(C_MAIN)] });
     await message.delete();
   }
@@ -208,7 +208,7 @@ client.on(Events.MessageCreate, async (message) => {
     await message.channel.send({
       embeds: [new EmbedBuilder()
         .setTitle('☁️ Get Access to the Cafe!')
-        .setImage('https://media.discordapp.net/attachments/1474855622880002191/1485289030546493552/image.png?ex=69d1cd74&is=69d07bf4&hm=075c48165814cb666a26e35c74083ace3f9895e5334ad846bc3cfd02c4e3926f&=&format=webp&quality=lossless&width=1387&height=780')
+        .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321668266004621/image.png?ex=69f0bc4b&is=69ef6acb&hm=886e555aef2a9e7f4cd16f3e7ef5ad93884afa647f1203bb36d6356275d0aaee&=&format=webp&quality=lossless&width=1385&height=779')
         .setColor(C_MAIN)],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('verify').setLabel('☁️ Enter the Cafe').setStyle(ButtonStyle.Primary)
