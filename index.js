@@ -2,6 +2,7 @@ require('dotenv').config();
 const {
   Client,
   GatewayIntentBits,
+  Partials,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -17,18 +18,34 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.DirectMessageReactions,
+    GatewayIntentBits.DirectMessageTyping,
+    GatewayIntentBits.GuildPresences
+  ],
+  partials: [
+    Partials.Channel,
+    Partials.Message,
+    Partials.User
   ]
 });
 
 // ─── CONSTANTS ───────────────────────────────────────────────────
 const VERIFIED_ROLE_ID      = '1470764529372762145';
-const WELCOME_CHANNEL_ID    = '1424272771722252403';
+const WELCOME_CHANNEL_ID    = '1504207642464092301';
 const STATUS_CHANNEL_ID     = '1490337482548711434';
-const ANNOUNCE_CHANNEL_ID   = '1424272771722252409';
+const ANNOUNCE_CHANNEL_ID   = '1504211471737819207';
 const APPS_CHANNEL_ID       = '1470769330164732149';
-const PARTNER_CHANNEL_ID    = '1484270944905334794';
+const PARTNER_CHANNEL_ID    = '1504212721325834402';
+const SHOP_CHANNEL_ID       = '1504210932484669590';
 const ANNOUNCE_IMAGE        = 'https://media.discordapp.net/attachments/1439309522610028594/1488384922090602586/1_cinnamoroll.gif?ex=69e8457a&is=69e6f3fa&hm=79ebcfb7182575e1cd5e0c171b87ab92e1018d4d8fa4a4a9adcffd3b38b82f91&=';
+
+const MODMAIL_CHANNEL_ID    = '1502639754275979294';
+const BOOST_CHANNEL_ID      = '1504208837924749332';
+const ANTIJOIN_CHANNEL_ID   = '1504898670644953229';
+const TICKET_CHANNEL_ID     = '1504210932484669590';
+const BOOST_LEVEL           = 10;
+const SERVER_INVITE         = 'https://discord.gg/K8YS9w9hk2';
 
 // ─── THEME ───────────────────────────────────────────────────────
 const C_MAIN    = 0xADD8E6; // light blue
@@ -44,7 +61,12 @@ const xpCooldowns        = new Set();
 const ticketCounter      = new Map();
 const activeApplications = new Map();
 const pendingApplications = new Map(); // messageId -> { userId, type, tag }
+const modmailSessions     = new Map(); // userId -> threadId (open modmails)
+const modmailPending      = new Set(); // userId (awaiting yes/no prompt)
 let   partnerCount       = 0;
+const robloxVerified     = new Map(); // userId -> { username, robloxId }
+const robloxPending      = new Map(); // userId -> { username, robloxId, code }
+let   requestCount       = 0;
 
 function getXP(userId) { return xpData.get(userId) || { xp: 0, level: 0 }; }
 function xpForLevel(level) { return 60 * (level + 1); } // easier leveling
@@ -84,65 +106,202 @@ client.once(Events.ClientReady, () => {
 client.on(Events.GuildMemberAdd, async (member) => {
   const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
   if (!channel) return;
-  channel.send({ embeds: [new EmbedBuilder()
-    .setTitle('☁️ a new guest has arrived!')
-    .setDescription(
-      `𝘸𝘦𝘭𝘤𝘰𝘮𝘦 𝘵𝘰 𝘓𝘶𝘯𝘢'𝘴 𝘊𝘢𝘧𝘦, ${member} ʚɞ\n\n` +
-      `☕ grab a seat and check the rules\n` +
-      `🍰 we're happy you're here!`
-    )
-    .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-    .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321413449191565/image.png?ex=69f0bc0e&is=69ef6a8e&hm=178a1f2a7ad9d755da3133e08b08acc2baa9fb835f4557b12afcc63eba978de2&=&format=webp&quality=lossless&width=1385&height=779')
-    .setColor(C_MAIN)
-    .setFooter({ text: `member #${member.guild.memberCount}` })] });
+  channel.send(`-# ⠀⠀ ༷   welcome ⠀⠀ ּ𓏼 ${member}`);
+});
+
+// ─── BOOST ────────────────────────────────────────────────────────
+client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+  const wasBoosting = oldMember.premiumSince;
+  const isBoosting  = newMember.premiumSince;
+  if (!wasBoosting && isBoosting) {
+    // Give level 10
+    xpData.set(newMember.id, { xp: 0, level: BOOST_LEVEL });
+
+    const boostChannel = newMember.guild.channels.cache.get(BOOST_CHANNEL_ID);
+    if (boostChannel) {
+      boostChannel.send({ embeds: [new EmbedBuilder()
+        .setDescription(
+          `̥̈◟ ͜𓏼˚ ty for boosting, ${newMember}!\n\n` +
+          `꒰っ.､꒱ check booster perks\n` +
+          `𐂯 ﹒ open a ticket and claim **XP**\n` +
+          `z☡z ﹒ choose a __custom__ role in booster chat`
+        )
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️" })] });
+    }
+  }
 });
 
 // ─── MESSAGE HANDLER ──────────────────────────────────────────────
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
 
-  // ── DM Application handler ────────────────────────────────────────
+  // ── DM Handler (modmail + applications) ──────────────────────────
   if (message.channel.type === ChannelType.DM) {
+
+    // ── Active application? handle it first ──────────────────────────
     const app = activeApplications.get(message.author.id);
-    if (!app) return;
-    app.answers.push(message.content);
-    const questions = app.type === 'staff' ? staffQuestions : gfxQuestions;
-    if (app.step < questions.length - 1) {
-      app.step++;
-      activeApplications.set(message.author.id, app);
-      await message.channel.send({ embeds: [new EmbedBuilder()
-        .setDescription(`**Question ${app.step + 1}/${questions.length}**\n\n${questions[app.step]}`)
-        .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️ • type your answer below" })] });
-    } else {
-      activeApplications.delete(message.author.id);
-      const guild = client.guilds.cache.first();
-      const appsChannel = guild?.channels.cache.get(APPS_CHANNEL_ID);
-      const resultEmbed = new EmbedBuilder()
-        .setTitle(`${app.type === 'staff' ? '🛡️ Staff' : '🎨 GFX Artist'} Application`)
-        .setDescription(`Application from **${message.author.tag}** (<@${message.author.id}>)`)
-        .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-        .setColor(C_MAIN)
-        .setTimestamp();
-      questions.forEach((q, i) => resultEmbed.addFields({ name: q, value: app.answers[i] || '*No answer*', inline: false }));
-
-      const appButtons = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`app_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`app_deny_${message.author.id}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
-      );
-
-      if (appsChannel) {
-        const appMsg = await appsChannel.send({ embeds: [resultEmbed], components: [appButtons] });
-        pendingApplications.set(appMsg.id, { userId: message.author.id, type: app.type, tag: message.author.tag });
+    if (app) {
+      app.answers.push(message.content);
+      const questions = app.type === 'staff' ? staffQuestions : gfxQuestions;
+      if (app.step < questions.length - 1) {
+        app.step++;
+        activeApplications.set(message.author.id, app);
+        await message.channel.send({ embeds: [new EmbedBuilder()
+          .setDescription(`**Question ${app.step + 1}/${questions.length}**\n\n${questions[app.step]}`)
+          .setColor(C_MAIN)
+          .setFooter({ text: "Luna's Shop ☁️ • type your answer below" })] });
+      } else {
+        activeApplications.delete(message.author.id);
+        const guild = client.guilds.cache.first();
+        const appsChannel = guild?.channels.cache.get(APPS_CHANNEL_ID);
+        const resultEmbed = new EmbedBuilder()
+          .setTitle(`${app.type === 'staff' ? '🛡️ Staff' : '🎨 GFX Artist'} Application`)
+          .setDescription(`Application from **${message.author.tag}** (<@${message.author.id}>)`)
+          .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+          .setColor(C_MAIN)
+          .setTimestamp();
+        questions.forEach((q, i) => resultEmbed.addFields({ name: q, value: app.answers[i] || '*No answer*', inline: false }));
+        const appButtons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`app_accept_${message.author.id}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`app_deny_${message.author.id}`).setLabel('❌ Deny').setStyle(ButtonStyle.Danger)
+        );
+        if (appsChannel) {
+          const appMsg = await appsChannel.send({ embeds: [resultEmbed], components: [appButtons] });
+          pendingApplications.set(appMsg.id, { userId: message.author.id, type: app.type, tag: message.author.tag });
+        }
+        await message.channel.send({ embeds: [new EmbedBuilder()
+          .setTitle('✅ Application Submitted!')
+          .setDescription(`thank you for applying to **Luna's Shop**! ☁️🌸\nyour application has been sent to our staff team.\nwe'll get back to you soon! ʚɞ`)
+          .setColor(C_MAIN)
+          .setFooter({ text: "Luna's Shop ☁️" })] });
       }
+      return;
+    }
 
-      await message.channel.send({ embeds: [new EmbedBuilder()
-        .setTitle('✅ Application Submitted!')
-        .setDescription(`thank you for applying to **Luna's Cafe**! ☁️🌸\nyour application has been sent to our staff team.\nwe'll get back to you soon! ʚɞ`)
+    // ── Active modmail? relay message to thread ───────────────────────
+    if (modmailSessions.has(message.author.id)) {
+      const threadId = modmailSessions.get(message.author.id);
+      const guild = client.guilds.cache.first();
+      try {
+        const thread = await guild.channels.fetch(threadId);
+        if (!thread) {
+          modmailSessions.delete(message.author.id);
+          return;
+        }
+        await thread.send({ embeds: [new EmbedBuilder()
+          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+          .setDescription(message.content || '*[attachment or embed]*')
+          .setColor(C_MAIN)
+          .setFooter({ text: "Luna's Shop ☁️ • user message" })
+          .setTimestamp()] });
+        // forward attachments
+        if (message.attachments.size > 0) {
+          const urls = message.attachments.map(a => a.url).join('\n');
+          await thread.send(`📎 **Attachment(s):**\n${urls}`);
+        }
+      } catch (e) {
+        console.error('Modmail relay error:', e);
+      }
+      return;
+    }
+
+    // ── Awaiting modmail prompt? ignore further messages ──────────────
+    if (modmailPending.has(message.author.id)) return;
+
+    // ── New DM — ask if they want to open a modmail ───────────────────
+    modmailPending.add(message.author.id);
+    await message.channel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle('📬 Luna\'s Shop — Modmail')
+        .setDescription(
+          `☁️ hey **${message.author.username}**! 🌸\n\n` +
+          `would you like to open a **modmail ticket**?\n` +
+          `our staff team will assist you as soon as possible!\n\n` +
+          `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+          `╰┈➤ *click a button below to continue* ☁️`
+        )
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️" })] });
+        .setFooter({ text: "Luna's Shop ☁️ • modmail" })],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('modmail_open').setLabel('✅ Yes, open a ticket').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('modmail_cancel').setLabel('❌ No thanks').setStyle(ButtonStyle.Secondary)
+      )]
+    });
+    return;
+  }
+
+  // ── Forum thread relay (staff → user DM) ─────────────────────────
+  if (message.channel.isThread?.() && message.channel.parentId === MODMAIL_CHANNEL_ID) {
+    // Find user from modmailSessions by threadId
+    const userId = [...modmailSessions.entries()].find(([, tid]) => tid === message.channel.id)?.[0];
+    if (!userId) return;
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send({ embeds: [new EmbedBuilder()
+        .setAuthor({ name: `${message.author.tag} · Staff`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .setDescription(message.content || '*[attachment or embed]*')
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • staff reply" })
+        .setTimestamp()] });
+      if (message.attachments.size > 0) {
+        const urls = message.attachments.map(a => a.url).join('\n');
+        await user.send(`📎 **Attachment(s):**\n${urls}`);
+      }
+    } catch (e) {
+      await message.channel.send({ embeds: [embed('⚠️ Could not DM this user — they may have DMs closed.', C_WARN)] });
     }
     return;
+  }
+
+  // ── Anti-join/bot trap channel ───────────────────────────────────
+  if (message.channel.id === ANTIJOIN_CHANNEL_ID) {
+    try {
+      const member = message.guild.members.cache.get(message.author.id);
+      if (member) {
+        // Delete all their messages in that channel
+        const msgs = await message.channel.messages.fetch({ limit: 100 });
+        const userMsgs = msgs.filter(m => m.author.id === message.author.id);
+        if (userMsgs.size > 0) await message.channel.bulkDelete(userMsgs, true).catch(() => {});
+        // DM them the invite first
+        try {
+          await message.author.send({ embeds: [new EmbedBuilder()
+            .setTitle('⚠️ You have been kicked')
+            .setDescription(
+              `you were kicked from the server for triggering a protected channel.\n\n` +
+              `if this was a mistake, you are welcome to rejoin:\n${SERVER_INVITE}`
+            )
+            .setColor(C_ERROR)] });
+        } catch {}
+        // Kick
+        await member.kick('Triggered anti-bot/hacked account channel');
+      }
+    } catch (e) { console.error('Antijoin error:', e); }
+    return;
+  }
+
+  // ── !ticketpanel ──────────────────────────────────────────────────
+  if (command === '!ticketpanel') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    await message.channel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle('🎫 Tickets — Luna\'s Shop')
+        .setDescription(
+          `⬚　﹑　 　　need help? open a ticket!\n` +
+          `　﹒　┆﹒　our staff will assist you shortly\n\n` +
+          `　𐂯　﹑　　　click the button below to create\n` +
+          `　　　　　a private ticket channel　　꒰っ.､꒱\n\n` +
+          `　z☡z　﹑　 　　please be patient & descriptive\n` +
+          `　﹒　┆﹒　one ticket at a time please!`
+        )
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️" })],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_open').setLabel('🎫 Open Ticket').setStyle(ButtonStyle.Primary)
+      )]
+    });
+    await message.delete();
   }
 
   // ── Partner count tracker ─────────────────────────────────────────
@@ -152,9 +311,38 @@ client.on(Events.MessageCreate, async (message) => {
       .setTitle('🤝 Partnership')
       .setDescription(`🌸 **Partner Count : ${partnerCount}**\n\nthank you for partnering with Luna's Cafe! ☁️✨`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
     return;
   }
+
+  // ── Shop request system (.req) ────────────────────────────────────
+  if (message.channel.id === SHOP_CHANNEL_ID && message.content.toLowerCase().startsWith('.req ')) {
+    const details = message.content.slice(5).trim();
+    if (!details) {
+      const warn = await message.reply({ content: '⚠️ Usage: `.req <your request details>`', flags: 64 });
+      return;
+    }
+    requestCount++;
+    await message.delete().catch(() => {});
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setAuthor({ name: "Luna's Shop ☁️🛍️", iconURL: message.guild.iconURL({ dynamic: true }) })
+      .setTitle(`🛍️ New Request — #${requestCount}`)
+      .setDescription(
+        `﹒₊˚ʚ﹕🧁-ɞ-﹒-request\n\n` +
+        `👤 **Request From :** ${message.author}\n` +
+        `✨ **Details :**\n${details}\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *staff will review your request soon!* ☁️🌸`
+      )
+      .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
+      .setColor(C_MAIN)
+      .setFooter({ text: `Luna's Shop ☁️ • request #${requestCount}` })
+      .setTimestamp()] });
+    return;
+  }
+
+  // ── Block non-.req messages in shop channel (optional: only allow commands) ─
+  // (we still let commands through below)
 
   const args = message.content.trim().split(/ +/);
   const command = args[0].toLowerCase();
@@ -172,7 +360,7 @@ client.on(Events.MessageCreate, async (message) => {
       message.channel.send({ embeds: [new EmbedBuilder()
         .setDescription(`⭐ **${message.author.username}** leveled up to **Level ${userData.level}**! ☁️🎉`)
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️" })] });
+        .setFooter({ text: "Luna's Shop ☁️" })] });
     }
     xpData.set(message.author.id, userData);
   }
@@ -183,20 +371,20 @@ client.on(Events.MessageCreate, async (message) => {
       return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
     await message.channel.send({ embeds: [new EmbedBuilder()
       .setDescription(
-        `❄️ Respect Everyone
-Be kind and respectful. No bullying, harassment, or toxic behavior.
-🌊 Keep It Safe (SFW)
-No NSFW, inappropriate content, or anything uncomfortable.
-🫧 No Spam
-Avoid flooding, spamming, or excessive caps. Keep chat clean and readable.
-🐚 Follow Discord TOS
-Make sure you follow Discord’s Terms of Service at all times.
-💬 Use Channels Properly
-Post in the correct channels so everything stays organized.
-🧊 Listen to Staff
-Staff decisions are final — they’re here to help keep the server safe.`
+        `⬚　﹑　 　　do not steal __ser__ver __lay__outs\n` +
+        `　　　　this includes inspiration, none of the layouts are f2u\n` +
+        `　﹒　┆﹒\n` +
+        `　no __big__otry, or __ha__te speech　　𓈃\n` +
+        `　　slurs will not be tolerated, neither will any other form of hate speech\n` +
+        `　𐂯　﹑　　　 　﹒　┆﹒\n` +
+        `　no __mis__use of pings　　𝛝𝛠\n` +
+        `　　use autoresponders as intended\n` +
+        `　z☡z　﹑　 　　use common sense\n` +
+        `　　even if a rule isnt listed, that dosent mean it dosent apply\n` +
+        `　﹒　┆﹒\n` +
+        `　strictly ntox, & __completely__ sfw　　꒰っ.､꒱\n` +
+        `　　no bullying, gore, nsfw, or sensitive topics`
       )
-      .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321413449191565/image.png?ex=69f0bc0e&is=69ef6a8e&hm=178a1f2a7ad9d755da3133e08b08acc2baa9fb835f4557b12afcc63eba978de2&=&format=webp&quality=lossless&width=1385&height=779')
       .setColor(C_MAIN)] });
     await message.delete();
   }
@@ -208,7 +396,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
     await message.channel.send({
       embeds: [new EmbedBuilder()
         .setTitle('☁️ Get Access to the Cafe!')
-        .setImage('https://media.discordapp.net/attachments/1305203610711359592/1498321668266004621/image.png?ex=69f0bc4b&is=69ef6acb&hm=886e555aef2a9e7f4cd16f3e7ef5ad93884afa647f1203bb36d6356275d0aaee&=&format=webp&quality=lossless&width=1385&height=779')
+        .setImage('https://media.discordapp.net/attachments/1474855622880002191/1485289030546493552/image.png?ex=69d1cd74&is=69d07bf4&hm=075c48165814cb666a26e35c74083ace3f9895e5334ad846bc3cfd02c4e3926f&=&format=webp&quality=lossless&width=1387&height=780')
         .setColor(C_MAIN)],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('verify').setLabel('☁️ Enter the Cafe').setStyle(ButtonStyle.Primary)
@@ -239,7 +427,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *questions? ask a mod!* 🍰`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
     await message.reply({ content: '✅ Status posted!', flags: 64 });
   }
 
@@ -255,7 +443,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setDescription(text)
       .setImage(ANNOUNCE_IMAGE)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
     await message.reply({ content: '✅ Announcement posted!', flags: 64 });
   }
 
@@ -273,7 +461,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
           `click a button below! your application will be sent via DM 💌`
         )
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️ • applications are sent via DM" })],
+        .setFooter({ text: "Luna's Shop ☁️ • applications are sent via DM" })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('apply_staff').setLabel('🛡️ Staff').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('apply_gfx').setLabel('🎨 GFX Artist').setStyle(ButtonStyle.Secondary)
@@ -296,12 +484,155 @@ Staff decisions are final — they’re here to help keep the server safe.`
           `╰┈➤ *please be patient, we'll get to you soon!* ☁️`
         )
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️" })],
+        .setFooter({ text: "Luna's Shop ☁️" })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('create_order').setLabel('🎨 Create Order').setStyle(ButtonStyle.Primary)
       )]
     });
     await message.delete();
+  }
+
+  // ── !verify ───────────────────────────────────────────────────────
+  if (command === '!verify') {
+    const username = args[1];
+    if (!username) return message.reply('⚠️ Usage: `!verify <roblox username>`');
+
+    if (robloxVerified.has(message.author.id))
+      return message.reply({ embeds: [embed(`✅ You are already verified as **${robloxVerified.get(message.author.id).username}** on Roblox! Use \`!unverify\` to unlink.`, C_MAIN)] });
+
+    try {
+      // Look up Roblox user ID from username
+      const searchRes = await fetch(`https://users.roblox.com/v1/usernames/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames: [username], excludeBannedUsers: false })
+      });
+      const searchData = await searchRes.json();
+      if (!searchData.data || searchData.data.length === 0)
+        return message.reply({ embeds: [embed(`❌ Roblox user **${username}** not found. Check the spelling!`, C_ERROR)] });
+
+      const robloxUser = searchData.data[0];
+      const code = `luna-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+      robloxPending.set(message.author.id, { username: robloxUser.name, robloxId: robloxUser.id, code });
+
+      // 10 min timeout
+      setTimeout(() => robloxPending.delete(message.author.id), 10 * 60 * 1000);
+
+      await message.reply({ embeds: [new EmbedBuilder()
+        .setTitle('🎮 Roblox Verification')
+        .setDescription(
+          `⬚　﹑　 　　hey **${message.author.username}**! ☁️\n` +
+          `　﹒　┆﹒　here's how to verify your Roblox account\n\n` +
+          `**Step 1:** go to your Roblox profile\n` +
+          `**Step 2:** edit your **bio/description**\n` +
+          `**Step 3:** paste this code anywhere in your bio:\n\n` +
+          `\`\`\`${code}\`\`\`` +
+          `\n**Step 4:** type \`!verified\` here when done!\n\n` +
+          `　z☡z　﹑　 　　code expires in **10 minutes**\n` +
+          `　﹒　┆﹒　linking to: **${robloxUser.name}** (ID: ${robloxUser.id})`
+        )
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • roblox verification" })] });
+    } catch (e) {
+      console.error('Roblox verify error:', e);
+      message.reply({ embeds: [embed('❌ Could not reach the Roblox API. Try again in a moment!', C_ERROR)] });
+    }
+  }
+
+  // ── !verified ─────────────────────────────────────────────────────
+  if (command === '!verified') {
+    const pending = robloxPending.get(message.author.id);
+    if (!pending) return message.reply({ embeds: [embed('⚠️ No pending verification found. Use `!verify <username>` first!', C_WARN)] });
+
+    try {
+      // Fetch Roblox profile description
+      const profileRes = await fetch(`https://users.roblox.com/v1/users/${pending.robloxId}`);
+      const profileData = await profileRes.json();
+      const bio = profileData.description || '';
+
+      if (!bio.includes(pending.code)) {
+        return message.reply({ embeds: [new EmbedBuilder()
+          .setTitle('❌ Code Not Found')
+          .setDescription(
+            `　z☡z　﹑　 　　your code wasn't found in your bio!\n\n` +
+            `make sure your bio contains:\n\`\`\`${pending.code}\`\`\`` +
+            `\nthen try \`!verified\` again. code expires in 10 minutes!`
+          )
+          .setColor(C_ERROR)
+          .setFooter({ text: "Luna's Shop ☁️ • roblox verification" })] });
+      }
+
+      // Success!
+      robloxPending.delete(message.author.id);
+      robloxVerified.set(message.author.id, { username: pending.username, robloxId: pending.robloxId });
+
+      await message.reply({ embeds: [new EmbedBuilder()
+        .setTitle('✅ Verified!')
+        .setDescription(
+          `⬚　﹑　 　　welcome **${pending.username}**! ☁️🌸\n` +
+          `　﹒　┆﹒　your Roblox account is now linked!\n\n` +
+          `　𐂯　﹑　　　you can now remove the code from your bio\n` +
+          `　　　　　if you'd like　　꒰っ.､꒱\n\n` +
+          `use \`!roblox\` to view your profile anytime!`
+        )
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • roblox verified ✅" })] });
+    } catch (e) {
+      console.error('Roblox verified error:', e);
+      message.reply({ embeds: [embed('❌ Could not reach the Roblox API. Try again in a moment!', C_ERROR)] });
+    }
+  }
+
+  // ── !roblox ───────────────────────────────────────────────────────
+  if (command === '!roblox') {
+    const target = message.mentions.users.first() || message.author;
+    const data = robloxVerified.get(target.id);
+    if (!data) return message.reply({ embeds: [embed(`❌ **${target.username}** hasn't verified their Roblox account yet. Use \`!verify <username>\` to link!`, C_WARN)] });
+
+    try {
+      const profileRes = await fetch(`https://users.roblox.com/v1/users/${data.robloxId}`);
+      const profile = await profileRes.json();
+      const thumbRes = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${data.robloxId}&size=150x150&format=Png`);
+      const thumbData = await thumbRes.json();
+      const avatar = thumbData.data?.[0]?.imageUrl || null;
+
+      await message.channel.send({ embeds: [new EmbedBuilder()
+        .setTitle(`🎮 ${profile.name}'s Roblox Profile`)
+        .setDescription(
+          `⬚　﹑　 　　linked to **${target.username}**\n` +
+          `　﹒　┆﹒\n\n` +
+          `　𐂯　﹑　**Username:** ${profile.name}\n` +
+          `　𐂯　﹑　**Display Name:** ${profile.displayName}\n` +
+          `　𐂯　﹑　**User ID:** ${data.robloxId}\n` +
+          `　𐂯　﹑　**Joined:** ${new Date(profile.created).toLocaleDateString()}\n\n` +
+          `　z☡z　﹑　[view profile](https://www.roblox.com/users/${data.robloxId}/profile)`
+        )
+        .setThumbnail(avatar)
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • roblox verification" })] });
+    } catch (e) {
+      message.channel.send({ embeds: [embed(`🎮 **${target.username}** is verified as **${data.username}** on Roblox!`, C_MAIN)] });
+    }
+  }
+
+  // ── !unverify ─────────────────────────────────────────────────────
+  if (command === '!unverify') {
+    if (!robloxVerified.has(message.author.id))
+      return message.reply({ embeds: [embed("⚠️ You don't have a linked Roblox account!", C_WARN)] });
+    const data = robloxVerified.get(message.author.id);
+    robloxVerified.delete(message.author.id);
+    message.reply({ embeds: [embed(`✅ Unlinked your Roblox account (**${data.username}**). You can re-verify anytime with \`!verify\`!`, C_MAIN)] });
+  }
+
+  // ── !whois ────────────────────────────────────────────────────────
+  if (command === '!whois') {
+    const robloxName = args[1];
+    if (!robloxName) return message.reply('⚠️ Usage: `!whois <roblox username>`');
+    // Find discord user linked to this roblox name
+    const found = [...robloxVerified.entries()].find(([, d]) => d.username.toLowerCase() === robloxName.toLowerCase());
+    if (!found) return message.reply({ embeds: [embed(`❌ No Discord user has linked **${robloxName}** as their Roblox account.`, C_WARN)] });
+    message.channel.send({ embeds: [embed(`🎮 **${robloxName}** is linked to <@${found[0]}> on Discord!`, C_MAIN)] });
   }
 
   // ── !closeticket ─────────────────────────────────────────────────
@@ -342,7 +673,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setThumbnail(target.displayAvatarURL({ dynamic: true }))
       .setDescription(`🎖️ **Level:** ${userData.level}\n✨ **XP:** ${userData.xp} / ${needed}\n\`${bar}\``)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !leaderboard ─────────────────────────────────────────────────
@@ -359,7 +690,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('☁️ Luna\'s Cafe — Leaderboard')
       .setDescription(desc)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !setlevel (admin) ─────────────────────────────────────────────
@@ -388,7 +719,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `🎭 **Roles:** ${guild.roles.cache.size}`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !userinfo ────────────────────────────────────────────────────
@@ -406,7 +737,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `🎭 **Roles:** ${target.roles.cache.filter(r => r.id !== message.guild.id).map(r => `<@&${r.id}>`).join(', ') || 'None'}`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !say ─────────────────────────────────────────────────────────
@@ -439,7 +770,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('🎱 Magic 8-Ball')
       .setDescription(`**Question:** ${question}\n\n**Answer:** ${answer}`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !coinflip ─────────────────────────────────────────────────────
@@ -465,7 +796,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('☁️ Daily Quote')
       .setDescription(`*"${q}"*`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !kick ────────────────────────────────────────────────────────
@@ -611,7 +942,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
           `╰┈➤ click the button below to enter! 🍀`
         )
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️ • Good luck!" })],
+        .setFooter({ text: "Luna's Shop ☁️ • Good luck!" })],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('giveaway_enter').setLabel('🍀 Enter Giveaway').setStyle(ButtonStyle.Success)
       )]
@@ -630,14 +961,14 @@ Staff decisions are final — they’re here to help keep the server safe.`
           .setTitle('🎉 GIVEAWAY ENDED 🎉')
           .setDescription(`🎁 **Prize:** ${prize}\n\n😔 No one entered!`)
           .setColor(0xAAAAAA)
-          .setFooter({ text: "Luna's Cafe ☁️" })], components: [disabledBtn] });
+          .setFooter({ text: "Luna's Shop ☁️" })], components: [disabledBtn] });
       } else {
         const winner = participants[Math.floor(Math.random() * participants.length)];
         await giveawayMsg.edit({ embeds: [new EmbedBuilder()
           .setTitle('🎉 GIVEAWAY ENDED 🎉')
           .setDescription(`🎁 **Prize:** ${prize}\n\n🏆 **Winner:** <@${winner}>\n👥 **Participants:** ${participants.length}`)
           .setColor(C_MAIN)
-          .setFooter({ text: "Luna's Cafe ☁️" })], components: [disabledBtn] });
+          .setFooter({ text: "Luna's Shop ☁️" })], components: [disabledBtn] });
         message.channel.send(`🎉 Congrats <@${winner}>! You won **${prize}**! ☁️🎁`);
       }
       activeGiveaways.delete(giveawayMsg.id);
@@ -673,7 +1004,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *thank you for being part of the team! ☕🌸*`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • Staff Guide" })] });
+      .setFooter({ text: "Luna's Shop ☁️ • Staff Guide" })] });
     await message.delete();
   }
 
@@ -708,7 +1039,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *Luna's Cafe is yours to nurture — make it shine! ☕✨*`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • Owner Guide" })] });
+      .setFooter({ text: "Luna's Shop ☁️ • Owner Guide" })] });
     await message.delete();
   }
 
@@ -742,7 +1073,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *great events make great communities! ☕🎊*`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • Event Guide" })] });
+      .setFooter({ text: "Luna's Shop ☁️ • Event Guide" })] });
     await message.delete();
   }
 
@@ -765,7 +1096,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *come join the fun! ☕🌸*`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • DTI Event" })
+      .setFooter({ text: "Luna's Shop ☁️ • DTI Event" })
       .setTimestamp()] });
     await message.delete();
   }
@@ -789,7 +1120,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `╰┈➤ *see you at the fair! ☕🎊*`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • DTI Event" })
+      .setFooter({ text: "Luna's Shop ☁️ • DTI Event" })
       .setTimestamp()] });
     await message.delete();
   }
@@ -841,7 +1172,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('💙 Ship Calculator')
       .setDescription(`**${user1.username}** 🤝 **${user2.username}**\n\n${hearts}\n\n**${percent}%** compatibility! ${percent >= 70 ? '☁️ meant to be!' : percent >= 40 ? '🌸 pretty cute!' : '🍵 maybe just friends!'}`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !topic ────────────────────────────────────────────────────────
@@ -863,7 +1194,7 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('💬 Conversation Topic')
       .setDescription(`*${t}*`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️" })] });
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !activity ─────────────────────────────────────────────────────
@@ -883,7 +1214,108 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setTitle('🌸 Server Activity')
       .setDescription(`*${a}*`)
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • let's get chatting!" })] });
+      .setFooter({ text: "Luna's Shop ☁️ • let's get chatting!" })] });
+  }
+
+  // ── !closemodmail ─────────────────────────────────────────────────
+  if (command === '!closemodmail') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    if (!message.channel.isThread?.() || message.channel.parentId !== MODMAIL_CHANNEL_ID)
+      return message.reply('❌ Run this inside a modmail thread.');
+    const userId = [...modmailSessions.entries()].find(([, tid]) => tid === message.channel.id)?.[0];
+    if (userId) {
+      modmailSessions.delete(userId);
+      try {
+        const user = await client.users.fetch(userId);
+        await user.send({ embeds: [new EmbedBuilder()
+          .setTitle('🔒 Modmail Closed')
+          .setDescription(`hey **${user.username}**! ☁️\n\nyour modmail ticket has been **closed** by staff.\nif you need further help, feel free to DM me again! 🌸`)
+          .setColor(C_MAIN)
+          .setFooter({ text: "Luna's Shop ☁️" })] });
+      } catch {}
+    }
+    await message.channel.send({ embeds: [embed('🔒 Modmail closed. Thread will be archived shortly. ☁️', C_MAIN)] });
+    setTimeout(async () => { try { await message.channel.setArchived(true); } catch {} }, 3000);
+  }
+
+  // ── !help ────────────────────────────────────────────────────────
+  if (command === '!shopsetup') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    await message.channel.send({ embeds: [new EmbedBuilder()
+      .setAuthor({ name: "Luna's Shop ☁️🛍️", iconURL: message.guild.iconURL({ dynamic: true }) })
+      .setTitle(`🛍️ Welcome to Luna's Shop!`)
+      .setDescription(
+        `﹒₊˚ʚ﹕🧁-ɞ-﹒-shop\n\n` +
+        `*hello and welcome to our cozy little shop!* ☁️✨\n\n` +
+        `🧸 **How to request:**\n` +
+        `type \`.req (your details)\` to submit a request!\n\n` +
+        `🎀 **What we offer:**\n` +
+        `🖼️ Profile Pictures (PFPs)\n` +
+        `🎨 Banners & Headers\n` +
+        `✨ Logos & Icons\n` +
+        `🍰 Custom GFX on request\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *please be patient — we'll get to you soon!* ☕🌸`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Shop ☁️ • use .req to order!" })] });
+    await message.delete();
+  }
+
+  // ── !shopclear ────────────────────────────────────────────────────
+  if (command === '!shopclear') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    requestCount = 0;
+    message.reply({ embeds: [embed('✅ Request counter reset to 0.', C_MAIN)], flags: 64 });
+  }
+
+  // ── !reqcount ─────────────────────────────────────────────────────
+  if (command === '!reqcount') {
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle(`🛍️ Luna's Shop — Request Count`)
+      .setDescription(`╰┈➤ *we've received a total of* **${requestCount}** *requests so far!* ☁️🧁`)
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Shop ☁️" })] });
+  }
+
+  // ── !shopclaim @user ──────────────────────────────────────────────
+  if (command === '!shopclaim') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('⚠️ Usage: `!shopclaim @user`');
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('🎨 Request Claimed!')
+      .setDescription(
+        `☁️ **${message.author.username}** has claimed the request from **${target.username}**!\n\n` +
+        `🌸 Your request is being worked on — please be patient! ʚɞ\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *we'll notify you when it's ready!* ☁️✨`
+      )
+      .setColor(C_MAIN)
+      .setFooter({ text: "Luna's Shop ☁️" })] });
+  }
+
+  // ── !shopdone @user ───────────────────────────────────────────────
+  if (command === '!shopdone') {
+    if (!message.member.permissions.has(PermissionFlagsBits.ManageGuild))
+      return message.reply({ content: '❌ You need **Manage Server** permission.', flags: 64 });
+    const target = message.mentions.users.first();
+    if (!target) return message.reply('⚠️ Usage: `!shopdone @user`');
+    message.channel.send({ embeds: [new EmbedBuilder()
+      .setTitle('✅ Request Complete!')
+      .setDescription(
+        `🎉 hey ${target}! your request has been completed! ☁️🎨\n\n` +
+        `🌸 thank you for shopping at **Luna's Shop**!\n` +
+        `☁️ we hope you love it! ʚɞ\n\n` +
+        `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+        `╰┈➤ *come back anytime!* 🧁✨`
+      )
+      .setColor(C_SUCCESS)
+      .setFooter({ text: "Luna's Shop ☁️" })] });
   }
 
   // ── !help ────────────────────────────────────────────────────────
@@ -893,10 +1325,23 @@ Staff decisions are final — they’re here to help keep the server safe.`
       .setDescription(
         `**Setup**\n` +
         `\`!rules\` · \`!setup\` · \`!announce <msg>\` · \`!ordersetup\` · \`!say <msg>\`\n\n` +
+        `**🛍️ Shop**\n` +
+        `\`.req <details>\` — Submit a shop request (in shop channel)\n` +
+        `\`!shopsetup\` — Post the shop welcome embed\n` +
+        `\`!reqcount\` — Show total request count\n` +
+        `\`!shopclaim @user\` — Claim a request\n` +
+        `\`!shopdone @user\` — Mark a request as done\n` +
+        `\`!shopclear\` — Reset request counter\n\n` +
         `**Guides** *(admin sends, everyone sees)*\n` +
         `\`!staffg\` · \`!ownerg\` · \`!eventg\`\n\n` +
         `**DTI Events**\n` +
         `\`!farming [details]\` · \`!fair [details]\`\n\n` +
+        `**🎮 Roblox**\n` +
+        `\`!verify <username>\` — link your Roblox account\n` +
+        `\`!verified\` — confirm after adding the code to your bio\n` +
+        `\`!roblox [@user]\` — view linked Roblox profile\n` +
+        `\`!unverify\` — unlink your account\n` +
+        `\`!whois <roblox username>\` — find who owns a Roblox account\n\n` +
         `**Applications**\n` +
         `\`!apply\` — Apply for staff or GFX artist via DM\n\n` +
         `**GFX**\n` +
@@ -911,6 +1356,8 @@ Staff decisions are final — they’re here to help keep the server safe.`
         `\`!kick\` · \`!ban\` · \`!unban\` · \`!timeout\` · \`!untimeout\`\n` +
         `\`!warn\` · \`!purge\` · \`!nuke\` · \`!closeticket\`\n` +
         `\`!lock\` · \`!unlock\` · \`!slowmode <secs>\`\n\n` +
+        `**📬 Modmail**\n` +
+        `\`!closemodmail\` — Close & archive a modmail thread\n\n` +
         `**Fun**\n` +
         `\`!hug\` · \`!pat\` · \`!cuddle\` · \`!slap\` · \`!boop\` · \`!wave\`\n` +
         `\`!ship @u1 @u2\` · \`!8ball <q>\` · \`!coinflip\` · \`!quote\`\n` +
@@ -925,7 +1372,111 @@ Staff decisions are final — they’re here to help keep the server safe.`
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
 
-  // ── Verify ───────────────────────────────────────────────────────
+  // ── Modmail Open ──────────────────────────────────────────────────
+  if (interaction.customId === 'modmail_open') {
+    modmailPending.delete(interaction.user.id);
+
+    if (modmailSessions.has(interaction.user.id)) {
+      await interaction.update({ components: [] });
+      return interaction.followUp({ content: '⚠️ You already have an open modmail ticket! Just send me a message here ☁️', ephemeral: true });
+    }
+
+    await interaction.update({
+      embeds: [new EmbedBuilder()
+        .setTitle('📬 Modmail Opened!')
+        .setDescription(
+          `☁️ your modmail ticket has been opened! 🌸\n\n` +
+          `our staff will assist you shortly.\n` +
+          `just **send messages here** and they'll be forwarded to staff!\n\n` +
+          `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+          `╰┈➤ *we'll get back to you as soon as possible* ☁️`
+        )
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • modmail" })],
+      components: []
+    });
+
+    try {
+      const guild = client.guilds.cache.first();
+      const modmailChannel = await guild.channels.fetch(MODMAIL_CHANNEL_ID);
+
+      const starterMsg = await modmailChannel.send({ embeds: [new EmbedBuilder()
+        .setTitle('📬 New Modmail Ticket')
+        .setDescription(
+          `╰┈➤ *new modmail opened* ☁️🌸\n\n` +
+          `👤 **User:** ${interaction.user.tag} (<@${interaction.user.id}>)\n` +
+          `🆔 **User ID:** ${interaction.user.id}\n` +
+          `📅 **Opened:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
+          `﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏﹏\n` +
+          `reply in this thread to chat with the user.\n` +
+          `use \`!closemodmail\` to close this ticket.`
+        )
+        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️ • modmail system" })
+        .setTimestamp()] });
+
+      const thread = await starterMsg.startThread({
+        name: `${interaction.user.username}'s modmail`,
+        autoArchiveDuration: 10080
+      });
+
+      modmailSessions.set(interaction.user.id, thread.id);
+    } catch (e) {
+      console.error('Modmail thread creation error:', e);
+      await interaction.followUp({ content: '❌ Could not create modmail thread. Make sure I have **Create Public Threads** permission!', ephemeral: true });
+    }
+  }
+
+  // ── Modmail Cancel ────────────────────────────────────────────────
+  if (interaction.customId === 'modmail_cancel') {
+    modmailPending.delete(interaction.user.id);
+    await interaction.update({
+      embeds: [new EmbedBuilder()
+        .setTitle('☁️ No problem!')
+        .setDescription(`no modmail ticket was opened. if you need help later, just DM me again! 🌸`)
+        .setColor(C_MAIN)
+        .setFooter({ text: "Luna's Shop ☁️" })],
+      components: []
+    });
+  }
+
+  // ── Open Ticket ───────────────────────────────────────────────────
+  if (interaction.customId === 'ticket_open') {
+    try {
+      const num = nextTicketNum(interaction.user.id);
+      const safeName = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) || 'user';
+      const staffRole = interaction.guild.roles.cache.find(r => r.permissions.has(PermissionFlagsBits.ManageGuild) && !r.managed);
+      const ticketChannel = await interaction.guild.channels.create({
+        name: `ticket-${safeName}-${num}`,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: ['ViewChannel'] },
+          { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'AttachFiles'] },
+          ...(staffRole ? [{ id: staffRole.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] }] : [])
+        ]
+      });
+      await ticketChannel.send({
+        content: `${interaction.user}`,
+        embeds: [new EmbedBuilder()
+          .setTitle('🎫 Ticket Opened')
+          .setDescription(
+            `⬚　﹑　 　　hey ${interaction.user}! welcome to your ticket\n` +
+            `　﹒　┆﹒　please describe your issue in detail\n\n` +
+            `　𐂯　﹑　　　our staff will be with you shortly　　꒰っ.､꒱\n\n` +
+            `　z☡z　﹑　 　　use \`!closeticket\` to close this ticket`
+          )
+          .setColor(C_MAIN)
+          .setFooter({ text: "Luna's Shop ☁️" })]
+      });
+      await interaction.reply({ content: `✅ Your ticket has been created! ${ticketChannel}`, ephemeral: true });
+    } catch (err) {
+      console.error(err);
+      await interaction.reply({ content: '❌ Could not create ticket. Make sure I have **Manage Channels** permission!', ephemeral: true });
+    }
+  }
+
+  // ── Verify ───────────────────────────────────────────────────────────
   if (interaction.customId === 'verify') {
     try {
       await interaction.member.roles.add(VERIFIED_ROLE_ID);
@@ -951,7 +1502,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           `**Question 1/${questions.length}**\n\n${questions[0]}`
         )
         .setColor(C_MAIN)
-        .setFooter({ text: "Luna's Cafe ☁️ • type your answer below" })] });
+        .setFooter({ text: "Luna's Shop ☁️ • type your answer below" })] });
       activeApplications.set(interaction.user.id, { type, answers: [], step: 0 });
       await interaction.reply({ content: '✅ Check your DMs! Your application has started ☁️', ephemeral: true });
     } catch {
@@ -990,7 +1541,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             `use \`!closeticket\` to close this ticket.`
           )
           .setColor(C_MAIN)
-          .setFooter({ text: "Luna's Cafe ☁️" })]
+          .setFooter({ text: "Luna's Shop ☁️" })]
       });
       await interaction.reply({ content: `✅ Your order ticket has been created! ${ticketChannel}`, ephemeral: true });
     } catch (err) {
@@ -1032,7 +1583,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           : `hey **${appData.tag}**! ☁️\n\nthank you for applying to **Luna's Cafe**.\nunfortunately your **${appData.type === 'staff' ? 'staff' : 'GFX artist'}** application was **not accepted** at this time.\n\ndon't be discouraged — you're always welcome to apply again in the future! 🌸`
         )
         .setColor(accepted ? C_SUCCESS : C_ERROR)
-        .setFooter({ text: "Luna's Cafe ☁️" })] });
+        .setFooter({ text: "Luna's Shop ☁️" })] });
     } catch { /* User has DMs closed */ }
 
     await interaction.reply({ content: `${accepted ? '✅ Accepted' : '❌ Denied'} **${appData.tag}**'s application and DM'd them the result!`, ephemeral: true });
@@ -1054,7 +1605,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         `╰┈➤ click the button below to enter! 🍀`
       )
       .setColor(C_MAIN)
-      .setFooter({ text: "Luna's Cafe ☁️ • Good luck!" })] });
+      .setFooter({ text: "Luna's Shop ☁️ • Good luck!" })] });
     await interaction.reply({ content: '🎉 You\'ve entered the giveaway! Good luck! 🍀', ephemeral: true });
   }
 });
